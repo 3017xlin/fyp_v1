@@ -1244,7 +1244,8 @@ def main(device, train_dataset, model, config, run_dir, coef_norm, kdtree,
         print(f'\n[EVAL] FAILED (SWA weights kept): {e}')
         traceback.print_exc()
 
-    if val_split is not None:
+    full_eval = bool(config.get('evaluation', {}).get('full_eval', False))
+    if val_split is not None and full_eval:
         try:
             _run_train_val_curve(
                 model=raw, config=config, coef_norm=coef_norm,
