@@ -1,0 +1,75 @@
+# =====================================================================
+# KDViT (E3-D2) default hyperparameters.
+#
+# Round 3 changes:
+#   - latent_dim:     256  (default; head_dim = 32 -> num_heads = 8)
+#   - num_heads:      derived from latent_dim in run.py if not set
+#   - ffn_hidden:     4 * latent_dim, derived in run.py if not set
+#   - register_tokens: 4   (now default-on)
+#   - pool_kv_factor:  0   (removed from active path)
+#   - gqa_kv_heads:    0   (dormant)
+# =====================================================================
+
+# === Architecture ===
+model:
+  patch_size: 4                 # leaves per token (power of 2, divides L)
+  latent_dim: 256
+  num_layers: 5
+  num_heads: null               # null -> derive in run.py (D=256:8, D=384:6)
+  ffn_hidden: null              # null -> 4 * latent_dim
+  fourier_freqs: 8
+  out_dim: 4
+  pn_hidden: 32
+  pn_layers: 2
+  pn_dim: 128
+  rope_scale: 32
+  rope_base: 100.0
+  use_did: true
+  no_patchify: true             # default: every leaf is its own token
+  no_unet_skip: false
+  register_tokens: 4            # NEW default
+  pool_kv_factor: 0             # REMOVED from active path; must stay 0
+  gqa_kv_heads: 0               # dormant
+
+# === Regularization ===
+regularization:
+  ffn_dropout: 0.1
+  decoder_dropout: 0.0
+  attn_dropout: 0.0
+  drop_path_rate: 0.0
+  weight_decay: null            # null -> derived 0.01 * sqrt(B_eff)
+  layerwise_scaling: false
+
+# === Training ===
+training:
+  nut_encoding: linear
+  batch_size: 1
+  nb_epochs: 398
+  lr: null                      # null -> derived 3e-4 * sqrt(B_eff)
+  subsampling: 32000
+  max_grad_norm: 1.0
+  data_on_gpu: true
+  compile: true                 # torch.compile training forward path
+  resource_log: true            # background GPU/CPU sampler
+
+# === SWA ===
+swa:
+  swa_window: 100
+
+# === Evaluation ===
+evaluation:
+  n_test_cases: 200
+  full_eval: false              # fast eval by default (field MSE only)
+
+# === Data / paths ===
+data:
+  cache_dir: null
+  data_dir: data/Dataset
+  task: full
+  pn_level: full
+  output_base: runs
+
+# === Anchors for sqrt(k) scaling — DO NOT change blindly ===
+scaling:
+  lr_anchor: 0.0003
+  wd_anchor: 0.01

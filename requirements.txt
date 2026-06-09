@@ -1,0 +1,13 @@
+torch
+torch_geometric
+torch-cluster
+vtk
+einops
+seaborn
+pyvista
+matplotlib
+scipy
+tqdm
+pyyaml
+psutil
+nvidia-ml-py
