@@ -1073,10 +1073,10 @@ def main(device, train_dataset, model, config, run_dir, coef_norm, kdtree,
     swa_max = swa_cfg.get('swa_window', 100)
 
     # Per-rank optimizer steps per epoch.
-    # All ranks see the same case order each epoch (deterministic seed) and
-    # take their slice via train_indices[rank::world].
+    # Patch C: train_dataset is already per-rank pre-sharded in run.py, so
+    # per_rank_cases = len(train_dataset) directly (no second [::world] slice).
     n_train = len(train_dataset)
-    per_rank_cases = math.ceil(n_train / world)
+    per_rank_cases = n_train
     steps_per_epoch = math.ceil(per_rank_cases / batch_size)
     total_steps = steps_per_epoch * nb_epochs
     warmup_steps = int(0.05 * total_steps)
@@ -1134,11 +1134,23 @@ def main(device, train_dataset, model, config, run_dir, coef_norm, kdtree,
 
     for epoch in pbar:
         epoch_t0 = time.time()
-        # Deterministic shuffle that's identical across ranks.
+        # Per-rank shuffle (dataset is already pre-sharded in run.py).
         g = torch.Generator()
-        g.manual_seed(0xDEADBEEF + epoch)
-        perm = torch.randperm(n_train, generator=g).tolist()
-        train_indices = perm[rank::world]
+        g.manual_seed(0xDEADBEEF + epoch + rank)
+        train_indices = torch.randperm(n_train, generator=g).tolist()
+
+        # Patch B: align optimizer step counts across ranks. With uneven
+        # per-rank case counts (or world*batch_size not dividing n_train),
+        # some ranks would take one more step and deadlock on NCCL all-reduce.
+        # all_reduce(MIN) on the chunk count, then truncate. world=1 keeps
+        # its original (possibly partial last chunk) behavior unchanged.
+        if world > 1:
+            n_chunks_local = len(train_indices) // batch_size
+            t = torch.tensor([n_chunks_local], device=device,
+                             dtype=torch.long)
+            dist.all_reduce(t, op=dist.ReduceOp.MIN)
+            n_chunks_local = int(t.item())
+            train_indices = train_indices[:n_chunks_local * batch_size]
 
         res = _train_one_epoch(
             device, model, train_dataset, train_indices,

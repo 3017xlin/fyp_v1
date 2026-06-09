@@ -346,11 +346,16 @@ def _setup_ddp():
     """
     world = int(os.environ.get('WORLD_SIZE', '1'))
     if world > 1:
+        from datetime import timedelta
         local_rank = int(os.environ.get('LOCAL_RANK', '0'))
         rank = int(os.environ.get('RANK', '0'))
-        if not dist.is_initialized():
-            dist.init_process_group(backend='nccl')
+        # set_device BEFORE init_process_group so NCCL picks the right card.
         torch.cuda.set_device(local_rank)
+        if not dist.is_initialized():
+            # Long timeout: rank-0 does SWA averaging + eval alone while
+            # other ranks sit in _barrier() at the end of training.
+            dist.init_process_group(backend='nccl',
+                                     timeout=timedelta(hours=4))
         device = f'cuda:{local_rank}'
         return device, world, rank, local_rank, (rank == 0)
     # Single-process.
@@ -427,11 +432,15 @@ def main():
     if is_main:
         print(f"[run] loading train dataset (task={task}, "
               f"pn_level={pn_level}, {nut_enc})...")
+    # Patch C: per-rank pre-sharding — each rank only loads its slice into
+    # VRAM. With world=1 this is a no-op (rank=0, world=1 -> [::1] = full).
+    rank_names = val_split['train_names'][rank::world]
     train_dataset = DatasetCached(
         cache_dir, split='train', task=task, pn_level=pn_level,
-        nut_encoding=nut_enc, names=val_split['train_names'])
+        nut_encoding=nut_enc, names=rank_names)
     if is_main:
-        print(f"[run] training on {len(train_dataset)} cases")
+        print(f"[run] training on {len(train_dataset)} cases per rank "
+              f"(total {len(val_split['train_names'])})")
 
     model = _build_model(cfg, kdtree).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

@@ -31,7 +31,23 @@ class ResourceMonitor:
             pynvml.nvmlInit()
             visible = os.environ.get('CUDA_VISIBLE_DEVICES')
             if visible:
-                ids = [int(x) for x in visible.split(',') if x.strip() != '']
+                tokens = [t.strip() for t in visible.split(',') if t.strip()]
+                ids = []
+                for tok in tokens:
+                    if tok.startswith('GPU-') or tok.startswith('MIG-'):
+                        # NSCC / SLURM uses UUIDs; resolve via NVML.
+                        try:
+                            h = pynvml.nvmlDeviceGetHandleByUUID(tok.encode())
+                            ids.append(pynvml.nvmlDeviceGetIndex(h))
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            ids.append(int(tok))
+                        except ValueError:
+                            pass
+                if not ids:
+                    ids = list(range(pynvml.nvmlDeviceGetCount()))
             else:
                 ids = list(range(pynvml.nvmlDeviceGetCount()))
             self._nvml_handles = [pynvml.nvmlDeviceGetHandleByIndex(i)
